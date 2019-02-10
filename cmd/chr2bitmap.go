@@ -1,1 +1,3 @@
-// TODO
+// +build ignore
+
+package main

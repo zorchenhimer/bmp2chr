@@ -1,9 +1,52 @@
 package bmp2chr
 
 import (
-    "encoding/binary"
-    "fmt"
+	"encoding/binary"
+	"fmt"
+	"io/ioutil"
 )
+
+type Bitmap struct {
+	fileHeader  *FileHeader
+	imageHeader *ImageHeader
+	Data        []byte
+}
+
+func OpenBitmap(filename string) (*Bitmap, error) {
+
+	// Read input file
+	rawBmp, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to open input bitmap file: %s", err)
+	}
+
+	// Parse some headers
+	fileHeader, err := ParseFileHeader(rawBmp)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse bitmap file header: %s", err)
+	}
+
+	imageHeader, err := ParseImageHeader(rawBmp)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse bitmap image header: %s", err)
+	}
+
+	// Validate image dimensions
+	if imageHeader.Width != 128 {
+		return nil, fmt.Errorf("Image width must be 128")
+	}
+
+	if imageHeader.Height%8 != 0 {
+		return nil, fmt.Errorf("Image height must be a multiple of 8")
+	}
+
+	return &Bitmap{
+		fileHeader:  fileHeader,
+		imageHeader: imageHeader,
+		// Isolate pixel data
+		Data: rawBmp[fileHeader.Offset:len(rawBmp)],
+	}, nil
+}
 
 type FileHeader struct {
 	Size   int // size of file in bytes
