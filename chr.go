@@ -1,8 +1,6 @@
 package bmp2chr
 
-import (
-//"fmt"
-)
+import ()
 
 /*
 CHR
@@ -11,7 +9,7 @@ CHR
 	first 8 bytes are the first half of the plane	(color 0 & 1)
 	second 8 bytes are the second half of the plane	(color 2 & 3)
 */
-func (t Tile) ToChr(doubleHigh bool) []byte {
+func (t Tile) ToChr() []byte {
 	// These are a max of 8 bytes each
 	planeA := []byte{}
 	planeB := []byte{}
@@ -23,7 +21,7 @@ func (t Tile) ToChr(doubleHigh bool) []byte {
 
 		// Get the byte for the given row
 		// The 8 here isn't row, it's column
-		for _, d := range t[rowNum*8 : ((rowNum + 1) * 8)] {
+		for _, d := range t.Pix[rowNum*8 : ((rowNum + 1) * 8)] {
 			// Normalize index to be between 0 and 3, inclusively
 			d = d % 4
 

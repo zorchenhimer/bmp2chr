@@ -3,6 +3,7 @@ package bmp2chr
 import (
 	"encoding/binary"
 	"fmt"
+	"image"
 	"io/ioutil"
 )
 
@@ -32,8 +33,8 @@ func OpenBitmap(filename string) (*Bitmap, error) {
 	}
 
 	// Validate image dimensions
-	if imageHeader.Width != 128 {
-		return nil, fmt.Errorf("Image width must be 128")
+	if imageHeader.Width%8 != 0 {
+		return nil, fmt.Errorf("Image width must be a multiple of 8")
 	}
 
 	if imageHeader.Height%8 != 0 {
@@ -46,6 +47,10 @@ func OpenBitmap(filename string) (*Bitmap, error) {
 		// Isolate pixel data
 		Data: rawBmp[fileHeader.Offset:len(rawBmp)],
 	}, nil
+}
+
+func (b Bitmap) Rect() image.Rectangle {
+	return image.Rect(0, 0, b.imageHeader.Width, b.imageHeader.Height)
 }
 
 type FileHeader struct {

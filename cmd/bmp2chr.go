@@ -31,57 +31,53 @@ func main() {
 		outputFilename = outputFilename[0:len(outputFilename)-len(ext)] + ".chr"
 	}
 
-	if doubleHigh {
-		fmt.Println("8x16 tiles are not yet supported")
-		os.Exit(1)
-	}
-
 	bitmap, err := bmp2chr.OpenBitmap(inputFilename)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	// Invert rows; They're stored top to bottom in BMP
-	row := (len(bitmap.Data) / 128) - 1
-	uprightRows := []byte{}
+	rect := bitmap.Rect()
 
-	for row > -1 {
+	// Invert row order. They're stored top to bottom in BMP.
+	uprightRows := []byte{}
+	for row := (len(bitmap.Data) / rect.Max.X) - 1; row > -1; row-- {
 		// Get the row
-		rawRow := bitmap.Data[row*128 : row*128+128]
+		rawRow := bitmap.Data[row*rect.Max.X : row*rect.Max.X+rect.Max.X]
+
 		// normalize each pixel's palette index
 		for _, b := range rawRow {
 			uprightRows = append(uprightRows, byte(int(b)%4))
 		}
-		row--
 	}
 
-	// split out the 8x8 or 8x16 tiles
+	// Cut out the 8x8 tiles
 	tileID := 0
 	tiles := []bmp2chr.Tile{}
-	numRows := 8
-	if doubleHigh {
-		numRows = 16
-	}
+	//fmt.Printf("uprightRows length: %d (%d)\n", len(uprightRows), len(uprightRows)/64)
 
 	for tileID < (len(uprightRows) / 64) {
 		// The first pixel offset in the current tile
-		startOffset := (tileID/16)*(128*8) + (tileID%16)*8
-		if doubleHigh {
-			// From SlashLife for 8x16 tiles: lookupTileId = (tileId / 32) * 32 + (tileId % 32) / 2 + (tileId % 2) * 16
-			// TODO: this isn't tested
-			startOffset = (tileID/32)*32 + (tileID%32)/2 + (tileID%2)*16
-		}
+		startOffset := (tileID/16)*(rect.Max.X*8) + (tileID%16)*8
+		//fmt.Printf("tileID: %d startOffset: %d\n", tileID, startOffset)
 
-		var tileBytes bmp2chr.Tile
-		for y := 0; y < numRows; y++ {
+		var tileBytes *bmp2chr.Tile
+		tileBytes = bmp2chr.NewTile(tileID)
+		for y := 0; y < 8; y++ {
+			tileY := y
+
+			// Wrap rows at 8 pixels
+			if tileY >= 8 {
+				tileY -= 8
+			}
+
+			// Get the pixels for the row.
 			for x := 0; x < 8; x++ {
-				//tileBytes = append(tileBytes, uprightRows[startOffset+x+128*y])
-				tileBytes[x+(8*y)] = uprightRows[startOffset+x+128*y]
+				tileBytes.Pix[x+(8*tileY)] = uprightRows[startOffset+x+rect.Max.X*y]
 			}
 		}
 
-		tiles = append(tiles, tileBytes)
+		tiles = append(tiles, *tileBytes)
 		tileID++
 	}
 
@@ -92,11 +88,29 @@ func main() {
 	}
 	defer chrFile.Close()
 
+	// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put after
+	// the tile directly above them. The first four tiles would be $00, $10, $01, $11.
+	if doubleHigh {
+		newtiles := []bmp2chr.Tile{}
+		for i := 0; i < len(tiles)/2; i++ {
+			if i%16 == 0 && i > 0 {
+				i += 16
+			}
+
+			newtiles = append(newtiles, tiles[i])
+			newtiles = append(newtiles, tiles[i+16])
+		}
+		tiles = newtiles
+	}
+
 	for _, tile := range tiles {
-		_, err = chrFile.Write(tile.ToChr(doubleHigh))
+		tchr := tile.ToChr()
+		_, err = chrFile.Write(tchr)
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 	}
+
+	//fmt.Printf("number of tiles: %d\n", len(tiles))
 }
