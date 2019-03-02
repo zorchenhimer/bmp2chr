@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -13,10 +14,12 @@ func main() {
 	var doubleHigh bool
 	var inputFilename string
 	var outputFilename string
+	var debug bool
 
 	flag.StringVar(&inputFilename, "i", "", "Input BMP file")
 	flag.StringVar(&outputFilename, "o", "", "Output filename (optional)")
 	flag.BoolVar(&doubleHigh, "16", false, "8x16 tiles")
+	flag.BoolVar(&debug, "debug", false, "Debug printing")
 	flag.Parse()
 
 	if len(inputFilename) == 0 {
@@ -51,15 +54,32 @@ func main() {
 		}
 	}
 
+	if debug {
+		err := ioutil.WriteFile("upright.dat", uprightRows, 0777)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+	}
+
 	// Cut out the 8x8 tiles
 	tileID := 0
 	tiles := []bmp2chr.Tile{}
 	//fmt.Printf("uprightRows length: %d (%d)\n", len(uprightRows), len(uprightRows)/64)
 
+	tilesPerRow := rect.Max.X / 8
+	if debug {
+		fmt.Printf("Source rect: %d, %d\ntilesPerRow: %d\n", rect.Max.X, rect.Max.Y, tilesPerRow)
+	}
+
 	for tileID < (len(uprightRows) / 64) {
 		// The first pixel offset in the current tile
-		startOffset := (tileID/16)*(rect.Max.X*8) + (tileID%16)*8
-		//fmt.Printf("tileID: %d startOffset: %d\n", tileID, startOffset)
+
+		// tile row * tile row length in pixels + offset in tile
+		startOffset := (tileID/tilesPerRow)*(64*tilesPerRow) + (tileID%tilesPerRow)*8
+		if debug {
+			fmt.Printf("tileID: %d @ %d\n", tileID, startOffset)
+		}
 
 		var tileBytes *bmp2chr.Tile
 		tileBytes = bmp2chr.NewTile(tileID)
@@ -104,6 +124,10 @@ func main() {
 	}
 
 	for _, tile := range tiles {
+		if debug {
+			fmt.Println(tile.ASCII())
+		}
+
 		tchr := tile.ToChr()
 		_, err = chrFile.Write(tchr)
 		if err != nil {
