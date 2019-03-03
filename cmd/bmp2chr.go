@@ -10,129 +10,112 @@ import (
 	"github.com/zorchenhimer/bmp2chr"
 )
 
+var supportedInputFormats []string = []string{".bmp"}
+
 func main() {
 	var doubleHigh bool
-	var inputFilename string
 	var outputFilename string
 	var debug bool
 
-	flag.StringVar(&inputFilename, "i", "", "Input BMP file")
-	flag.StringVar(&outputFilename, "o", "", "Output filename (optional)")
+	//flag.StringVar(&inputFilename, "i", "", "Input BMP file")
+	flag.StringVar(&outputFilename, "o", "", "Output filename")
 	flag.BoolVar(&doubleHigh, "16", false, "8x16 tiles")
 	flag.BoolVar(&debug, "debug", false, "Debug printing")
 	flag.Parse()
 
-	if len(inputFilename) == 0 {
-		fmt.Println("Missing input file")
+	fileList := []string{}
+
+	if len(flag.Args()) > 0 {
+		for _, target := range flag.Args() {
+			found, err := filepath.Glob(target)
+			if err == nil && len(found) > 0 {
+				fileList = append(fileList, found...)
+			} else {
+				fmt.Printf("%q not found\n", target)
+				os.Exit(1)
+			}
+		}
+	}
+
+	if len(fileList) == 0 {
+		fmt.Println("Missing input file(s)")
 		os.Exit(1)
 	}
 
-	// Default the same name but with .chr extension
+	// Require an output filename if there's more than one input.
 	if len(outputFilename) == 0 {
-		outputFilename = inputFilename
-		ext := filepath.Ext(inputFilename)
-		outputFilename = outputFilename[0:len(outputFilename)-len(ext)] + ".chr"
-	}
-
-	bitmap, err := bmp2chr.OpenBitmap(inputFilename)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	rect := bitmap.Rect()
-
-	// Invert row order. They're stored top to bottom in BMP.
-	uprightRows := []byte{}
-	for row := (len(bitmap.Data) / rect.Max.X) - 1; row > -1; row-- {
-		// Get the row
-		rawRow := bitmap.Data[row*rect.Max.X : row*rect.Max.X+rect.Max.X]
-
-		// normalize each pixel's palette index
-		for _, b := range rawRow {
-			uprightRows = append(uprightRows, byte(int(b)%4))
+		if len(fileList) == 1 {
+			outputFilename = fileList[0]
+			ext := filepath.Ext(fileList[0])
+			outputFilename = outputFilename[0:len(outputFilename)-len(ext)] + ".chr"
+		} else {
+			fmt.Println("Missing output filename")
+			os.Exit(1)
 		}
 	}
 
-	if debug {
-		err := ioutil.WriteFile("upright.dat", uprightRows, 0777)
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-	}
-
-	// Cut out the 8x8 tiles
-	tileID := 0
-	tiles := []bmp2chr.Tile{}
-	//fmt.Printf("uprightRows length: %d (%d)\n", len(uprightRows), len(uprightRows)/64)
-
-	tilesPerRow := rect.Max.X / 8
-	if debug {
-		fmt.Printf("Source rect: %d, %d\ntilesPerRow: %d\n", rect.Max.X, rect.Max.Y, tilesPerRow)
-	}
-
-	for tileID < (len(uprightRows) / 64) {
-		// The first pixel offset in the current tile
-
-		// tile row * tile row length in pixels + offset in tile
-		startOffset := (tileID/tilesPerRow)*(64*tilesPerRow) + (tileID%tilesPerRow)*8
-		if debug {
-			fmt.Printf("tileID: %d @ %d\n", tileID, startOffset)
-		}
-
-		var tileBytes *bmp2chr.Tile
-		tileBytes = bmp2chr.NewTile(tileID)
-		for y := 0; y < 8; y++ {
-			tileY := y
-
-			// Wrap rows at 8 pixels
-			if tileY >= 8 {
-				tileY -= 8
-			}
-
-			// Get the pixels for the row.
-			for x := 0; x < 8; x++ {
-				tileBytes.Pix[x+(8*tileY)] = uprightRows[startOffset+x+rect.Max.X*y]
+	for _, file := range fileList {
+		ext := filepath.Ext(file)
+		found := false
+		for _, supp := range supportedInputFormats {
+			if ext == supp {
+				found = true
 			}
 		}
-
-		tiles = append(tiles, *tileBytes)
-		tileID++
+		if !found {
+			fmt.Printf("Unsupported input format for file %q\n", file)
+			os.Exit(1)
+		}
 	}
 
 	chrFile, err := os.Create(outputFilename)
 	if err != nil {
 		fmt.Println(err)
-		return
+		os.Exit(1)
 	}
 	defer chrFile.Close()
 
-	// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put after
-	// the tile directly above them. The first four tiles would be $00, $10, $01, $11.
-	if doubleHigh {
-		newtiles := []bmp2chr.Tile{}
-		for i := 0; i < len(tiles)/2; i++ {
-			if i%16 == 0 && i > 0 {
-				i += 16
-			}
-
-			newtiles = append(newtiles, tiles[i])
-			newtiles = append(newtiles, tiles[i+16])
-		}
-		tiles = newtiles
-	}
-
-	for _, tile := range tiles {
-		if debug {
-			fmt.Println(tile.ASCII())
-		}
-
-		tchr := tile.ToChr()
-		_, err = chrFile.Write(tchr)
+	for _, inputfile := range fileList {
+		bitmap, err := bmp2chr.OpenBitmap(inputfile)
 		if err != nil {
 			fmt.Println(err)
-			return
+			os.Exit(1)
+		}
+
+		if debug {
+			err := ioutil.WriteFile("upright.dat", bitmap.RawData, 0777)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+		}
+
+		// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put after
+		// the tile directly above them. The first four tiles would be $00, $10, $01, $11.
+		if doubleHigh {
+			newtiles := []bmp2chr.Tile{}
+			for i := 0; i < len(bitmap.Tiles)/2; i++ {
+				if i%bitmap.TilesPerRow == 0 && i > 0 {
+					i += bitmap.TilesPerRow
+				}
+
+				newtiles = append(newtiles, bitmap.Tiles[i])
+				newtiles = append(newtiles, bitmap.Tiles[i+bitmap.TilesPerRow])
+			}
+			bitmap.Tiles = newtiles
+		}
+
+		for _, tile := range bitmap.Tiles {
+			if debug {
+				fmt.Println(tile.ASCII())
+			}
+
+			tchr := tile.ToChr()
+			_, err = chrFile.Write(tchr)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
 		}
 	}
 

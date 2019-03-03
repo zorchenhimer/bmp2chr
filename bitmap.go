@@ -10,7 +10,9 @@ import (
 type Bitmap struct {
 	fileHeader  *FileHeader
 	imageHeader *ImageHeader
-	Data        []byte
+	RawData     []byte
+	Tiles       []Tile
+	TilesPerRow int
 }
 
 func OpenBitmap(filename string) (*Bitmap, error) {
@@ -41,11 +43,61 @@ func OpenBitmap(filename string) (*Bitmap, error) {
 		return nil, fmt.Errorf("Image height must be a multiple of 8")
 	}
 
+	rect := image.Rect(0, 0, imageHeader.Width, imageHeader.Height)
+	data := rawBmp[fileHeader.Offset:len(rawBmp)]
+
+	// Invert row order. They're stored top to bottom in BMP.
+	uprightRows := []byte{}
+	for row := (len(data) / rect.Max.X) - 1; row > -1; row-- {
+		// Get the row
+		rawRow := data[row*rect.Max.X : row*rect.Max.X+rect.Max.X]
+
+		// normalize each pixel's palette index
+		for _, b := range rawRow {
+			uprightRows = append(uprightRows, byte(int(b)%4))
+		}
+	}
+
+	// Cut out the 8x8 tiles
+	tileID := 0
+	tiles := []Tile{}
+	//fmt.Printf("uprightRows length: %d (%d)\n", len(uprightRows), len(uprightRows)/64)
+
+	tilesPerRow := rect.Max.X / 8
+
+	for tileID < (len(uprightRows) / 64) {
+		// The first pixel offset in the current tile
+
+		// tile row * tile row length in pixels + offset in tile
+		startOffset := (tileID/tilesPerRow)*(64*tilesPerRow) + (tileID%tilesPerRow)*8
+
+		var tileBytes *Tile
+		tileBytes = NewTile(tileID)
+		for y := 0; y < 8; y++ {
+			tileY := y
+
+			// Wrap rows at 8 pixels
+			if tileY >= 8 {
+				tileY -= 8
+			}
+
+			// Get the pixels for the row.
+			for x := 0; x < 8; x++ {
+				tileBytes.Pix[x+(8*tileY)] = uprightRows[startOffset+x+rect.Max.X*y]
+			}
+		}
+
+		tiles = append(tiles, *tileBytes)
+		tileID++
+	}
+
 	return &Bitmap{
 		fileHeader:  fileHeader,
 		imageHeader: imageHeader,
 		// Isolate pixel data
-		Data: rawBmp[fileHeader.Offset:len(rawBmp)],
+		RawData:     uprightRows,
+		Tiles:       tiles,
+		TilesPerRow: tilesPerRow,
 	}, nil
 }
 
