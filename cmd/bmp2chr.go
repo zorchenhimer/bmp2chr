@@ -90,9 +90,11 @@ func main() {
 			}
 		}
 
-		// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put after
-		// the tile directly above them. The first four tiles would be $00, $10, $01, $11.
-		if doubleHigh {
+		// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put
+		// after the tile directly above them. The first four tiles would be
+		// $00, $10, $01, $11.
+		// If the number of rows is not even, ignore 8x16 mode.
+		if doubleHigh && bitmap.Rect().Max.Y%16 == 0 {
 			newtiles := []bmp2chr.Tile{}
 			for i := 0; i < len(bitmap.Tiles)/2; i++ {
 				if i%bitmap.TilesPerRow == 0 && i > 0 {
@@ -118,6 +120,4 @@ func main() {
 			}
 		}
 	}
-
-	//fmt.Printf("number of tiles: %d\n", len(tiles))
 }
