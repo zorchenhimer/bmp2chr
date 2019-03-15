@@ -6,18 +6,18 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/zorchenhimer/bmp2chr"
 )
 
-var supportedInputFormats []string = []string{".bmp"}
+var supportedInputFormats []string = []string{".bmp", ".json"}
 
 func main() {
 	var doubleHigh bool
 	var outputFilename string
 	var debug bool
 
-	//flag.StringVar(&inputFilename, "i", "", "Input BMP file")
 	flag.StringVar(&outputFilename, "o", "", "Output filename")
 	flag.BoolVar(&doubleHigh, "16", false, "8x16 tiles")
 	flag.BoolVar(&debug, "debug", false, "Debug printing")
@@ -75,21 +75,58 @@ func main() {
 	}
 	defer chrFile.Close()
 
-	for _, inputfile := range fileList {
-		bitmap, err := bmp2chr.OpenBitmap(inputfile)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+	inputBitmaps := map[string]*bmp2chr.Bitmap{}
 
-		if debug {
-			err := ioutil.WriteFile("upright.dat", bitmap.RawData, 0777)
+	for _, inputfile := range fileList {
+		var err error
+		var bitmap *bmp2chr.Bitmap
+
+		switch strings.ToLower(filepath.Ext(inputfile)) {
+		case ".bmp":
+			bitmap, err = bmp2chr.OpenBitmap(inputfile)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
+			inputBitmaps[inputfile] = bitmap
+
+			if debug {
+				err := ioutil.WriteFile("upright.dat", bitmap.RawData, 0777)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
+			}
+
+		case ".json":
+			bitmap, err = bmp2chr.ReadConfig(inputfile)
+
+		default:
+			panic("Unsupported 'supported' format: " + filepath.Ext(inputfile))
 		}
 
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		inputBitmaps[inputfile] = bitmap
+
+	}
+
+	patternTable := []bmp2chr.Tile{}
+	blankBmp, err := bmp2chr.OpenBitmap("blank.bmp")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	blankTile := blankBmp.Tiles[0]
+
+	for i := 0; i < 16*16; i++ {
+		patternTable = append(patternTable, blankTile)
+	}
+
+	index := 8	 // current tile index
+	for _, bitmap := range inputBitmaps {
 		// If it's 8x16 mode, transform tiles.  Tiles on odd rows will be put
 		// after the tile directly above them. The first four tiles would be
 		// $00, $10, $01, $11.
@@ -107,17 +144,40 @@ func main() {
 			bitmap.Tiles = newtiles
 		}
 
-		for _, tile := range bitmap.Tiles {
-			if debug {
-				fmt.Println(tile.ASCII())
+		if bitmap.HasConfig() {
+			fmt.Printf("Has config: %v\nstart index: %d\n", bitmap.Config.Indices, index)
+			for idx, tile := range bitmap.Tiles {
+				newIdx := index + bitmap.Config.Indices[idx]
+				patternTable[newIdx] = tile
+
+				fmt.Printf("New index: %d\n", newIdx)
 			}
 
-			tchr := tile.ToChr()
-			_, err = chrFile.Write(tchr)
-			if err != nil {
-				fmt.Println(err)
-				os.Exit(1)
+		} else {
+			fmt.Println("No config")
+			for _, tile := range bitmap.Tiles {
+				fmt.Println(index)
+				patternTable[index] = tile
+
+				index++
+				if index >= 16*16 {
+					fmt.Println("Too many tiles! Truncating")
+					break
+				}
 			}
+		}
+	}
+
+	for _, tile := range patternTable {
+		if debug {
+			fmt.Println(tile.ASCII())
+		}
+
+		tchr := tile.ToChr()
+		_, err = chrFile.Write(tchr)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
 	}
 }

@@ -13,6 +13,7 @@ type Bitmap struct {
 	RawData     []byte
 	Tiles       []Tile
 	TilesPerRow int
+	Config		*Configuration
 }
 
 func OpenBitmap(filename string) (*Bitmap, error) {
@@ -103,6 +104,13 @@ func OpenBitmap(filename string) (*Bitmap, error) {
 
 func (b Bitmap) Rect() image.Rectangle {
 	return image.Rect(0, 0, b.imageHeader.Width, b.imageHeader.Height)
+}
+
+func (b Bitmap) HasConfig() bool {
+	if b.Config == nil {
+		return false
+	}
+	return true
 }
 
 type FileHeader struct {
